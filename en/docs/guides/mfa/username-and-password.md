@@ -3,40 +3,26 @@
 This scenario involves obtaining the username first and validating that
 prior to autenticating the user using the password.
 
-1. Log in to the [Management
-    Console]({{base_path}}/setup/getting-started-with-the-management-console).
-2. Navigate to the **Main** menu to access the **Identity** menu. Click
-    **Add** under **Service Providers**.
-3. Create a new Service Provider:
+## Prerequisites
+
+- You need to [set up the sample]({{base_path}}/guides/adaptive-auth/adaptive-auth-overview/#set-up-the-sample) application.
+
+## Configure MFA using basic authentiation
+
+To configure mfa using username and password:
+
+1. On the management console, go to **Main** > **Identity** > **Service Providers** > **List**.
+
+2. Click **Edit** on the service provider you have created.
+
+3. Expand the **Local and Outbound Authentication Configuration** section and click **Advanced Configuration**.
 
     !!! info
-        For more information on creating a service provider, see [Adding and
-        Configuring a Service
-        Provider]({{base_path}}//adding-and-configuring-a-service-provider).
-
-    1. Fill in the **Service Provider Name** and provide a brief
-        **Description** of the service provider. Only **Service Provider
-        Name** is a required field.
-    2. Click **Register** to add the new service provider.
-
-4. Access the service provider you just created and expand **Local &
-    Outbound Authentication Configuration**.
-
-    !!! info
-        For more information on configuring the local and outbound
-        authentication configuration, see [Configuring Local and Outbound
-        Authentication for a Service
-        Provider]({{base_path}}/learn/configuring-local-and-outbound-authentication-for-a-service-provider)
-        .
+        see [Configuring Local and Outbound Authentication for a Service Provider]({{base_path}}/learn/configuring-local-and-outbound-authentication-for-a-service-provider) for more information.
 
     ![configure-local-outbound]({{base_path}}/assets/img/using-wso2-identity-server/configure-local-outbound.png)
 
-
-5. Select **Advanced Configuration** to configure multi-factor
-    authentication.
-6. Click **Add Authentication Step**. Then add a local authenticator
-    from **Local Authenticators** section. Select **identifier** from
-    the dropdown. This is used to identify the user.
+6. Click **Add Authentication Step**. Then add a local authenticator from **Local Authenticators** section. Select **identifier** from the dropdown. This is used to identify the user.
 
     !!! note
         The identifier is not an authenticator, so having only
@@ -44,7 +30,7 @@ prior to autenticating the user using the password.
         authentication. If there are no authenticators configured other than identifier, an error occurs when updating the service provider.
 
 
-7. Click **Add** **Authentication** **step** and add the **basic**
+7. Click **Add Authentication step** and add the **basic**
     authenticator from **Local Authenticators** section.  This will
     enable the password as the 2nd step authenticator.  
     ![second-step-authenticator]({{base_path}}/assets/img/using-wso2-identity-server/second-step-authenticator.png)
@@ -55,7 +41,7 @@ prior to autenticating the user using the password.
         However, by default, the username is not validated and WSO2 Identity Server does not check whether it exists in the userstore. This can be configured by setting the following parameter in the
         `<IS_HOME>/repository/conf/deployment.toml` file as shown below.
 
-        ``` xml
+        ``` toml
         [authentication.authenticator.user_identifier] 
         name ="IdentifierExecutor"
         enable=true

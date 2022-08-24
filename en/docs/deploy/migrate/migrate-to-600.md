@@ -62,13 +62,52 @@ Copy the `.jks` files from the `<OLD_IS_HOME>/repository/resources/security` fol
 
     Make sure to point the internal keystore to the keystore that is copied from the previous WSO2 Identity Server version. The primary keystore can be pointed to a keystore with a certificate that has a strong RSA key.
 
+    Also, make sure to add the public key of the primary keystore to the client trust store copied from the previous IS.
+
+    - Export the public key from your primary keystore file using the following command  
+    `keytool -export -alias wso2carbon -keystore primary.jks -file <public key name>.pem`
+
+    - Import the public key you extracted to the `client-truststore.jks` file by using the following command  
+    `keytool -import -alias wso2carbon -file <public key name>.pem -keystore client-truststore.jks -storepass wso2carbon`
+
 ### Tenants
 
 If you have created tenants in the previous WSO2 Identity Server version that contain resources, copy the content from the `<OLD_IS_HOME>/repository/tenants` folder to the `<NEW_IS_HOME>/repository/tenants` folder.
 
+!!! note
+    If you are migrating from IS 5.8.0 or below, delete the `eventpublishers` and `eventstreams` folders from each tenant in the `tenants` folder when copying to IS 6.0.0. Make sure to **backup** the `tenants` folder before deleting the subfolders. You can use the following set of commands to find and delete all the relevant subfolders at once.
+    ```
+    cd <NEW_IS_HOME>/repository/tenants
+    find . -type d -name 'eventpublishers' -exec rm -rf {} +
+    find . -type d -name 'eventstreams' -exec rm -rf {} +
+    ```
+
 ### User stores
 
 If you have created secondary user stores in the previous WSO2 IS version, copy the content in the `<OLD_IS_HOME>/repository/deployment/server/userstores` folder to the `<NEW_IS_HOME>/repository/deployment/server/userstores` folder.
+
+!!! note
+    If you are migrating from a version prior to IS 5.5.0, you need to make the following changes in the `<NEW_IS_HOME>/migration-resources/migration-config.yaml` file (see Step 2 for instructions for downloading migration resources).
+
+    - Remove all `UserStorePasswordMigrators` from versions above your previous IS version. Userstore password migration will be done by the `EncryptionAdminFlowMigrator` in the version 5.11.0.
+
+    ```
+    name: "UserStorePasswordMigrator"
+    order: 5
+    parameters:
+      schema: "identity"
+    ```
+
+    - Change the `currentEncryptionAlgorithm` to `“RSA”` in `EncryptionAdminFlowMigrator` of version 5.11.0
+
+    ```
+    name: "EncryptionAdminFlowMigrator"
+    order: 1
+    parameters:
+      currentEncryptionAlgorithm: "RSA"
+      migratedEncryptionAlgorithm: "AES/GCM/NoPadding"
+      schema: "identity"
+    ```
 
 ### Webapps
 
@@ -146,7 +185,9 @@ Follow the steps given below to perform the dry run.
 1.  Configure the migration report path using the `reportPath` value in the `<IS_HOME>/migration-resources/migration-config.yaml` file. 
 
     !!! info
-        This path should be an absolute path.
+        Use **one** of the following methods when configuring the report path:    
+          - Create a text file. Provide the absolute path for that text file for all `reportPath` parameters. All results from the dry run will be appended to this text file.
+          - Create separate directories to store dry run reports of every migrator having the `reportPath` parameter. Provide the absolute paths of these directories for the `reportPath` of the relevant migrator. Dry run result of each migrator will be created in their specific report directories according to the timestamp.
 
 2.  Run the migration utility with the `dryRun` system property:
 
@@ -306,11 +347,15 @@ Now, let's run the migration client to upgrade the databases.
         wso2server.bat -Dmigrate -Dcomponent=identity
         ```
 
-2. Stop the server once the migration client execution is complete.
+2. **Restart** the server once the migration client execution is complete.
 
 ## Step 3: (Optional) Migrate secondary user stores
 
 These steps should be carried out for the old database before the migration. A backup of the UM database should be taken and database triggers should be set to update the backup database based on the updates of the live database. After performing the following steps, the backup database should be migrated to the next version:
+
+!!! Note
+        - If you are migrating from a version prior to IS 5.10.0, you need to make sure the UserStoreManager class name change to the new unique ID classes in userstore XML files.
+        - If the used driver is deprecated change it to an updated driver by editing the existing userstore configs.
 
 1.  If you have JDBC secondary user stores with SCIM disabled, execute the following queries on the UM database: 
 
@@ -815,7 +860,7 @@ These steps should be carried out for the old database before the migration. A b
         UPDATE UM_USER SET UM_USER_ID =LOWER(NEWID())  WHERE UM_USER_ID='N' ;
         ```
 
-## Step 4: (Optional) Sync DBs for Zerro down time
+## Step 4: (Optional) Sync DBs for Zero downtime
 
 !!! warning
     Proceed with this step only if you have opted for [Zero down time migration]({{base_path}}/setup/migrating-preparing-for-migration/#zero-down-time-migration). 

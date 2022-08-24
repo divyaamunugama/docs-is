@@ -27,6 +27,25 @@ Before you start the migration, see the instructions given here.
     create_admin_account = false 
     ```
 
+!!! note
+   * If you are migrating from a version below IS 5.9.0 with a **JDBC primary userstore** configured, use the following configuration to disable the use of **Unique ID Userstore Managers** during the migration.
+     ```toml
+     [user_store]
+     type = "database"
+     ```
+     As the former (non-unique ID) userstore managers are no longer supported, this configuration **must** be changed to the Unique ID Userstore Manager after the migration is complete to ensure proper functionality in IS 6.0.0 by using the configuration below.
+     ```toml
+     [user_store]
+     type = "database_unique_id"
+     ```
+   * If you are migrating from a version below IS 5.10.0, make sure to disable the Groups and Roles Separation feature during the migration.
+     ```toml
+     [authorization_manager.properties]
+     GroupAndRoleSeparationEnabled = false
+     ```
+     After the migration is complete, this configuration can be changed to enable the feature if it is required.
+   * It is recommended to run the [token cleanup scripts](https://is.docs.wso2.com/en/latest/setup/removing-unused-tokens-from-the-database/) before migration to clean the expired, inactive, and revoked tokens/codes. This reduces the time taken for migration.
+
 ## Prepare for Groups and Roles separation
 
 With WSO2 Identity Server 5.11.0, groups and roles are separated. For more information, see [What Has Changed in 5.11.0](https://is.docs.wso2.com/en/5.11.0/setup/migrating-what-has-changed#group-and-role-separation). 
@@ -180,6 +199,278 @@ If it's mandatory to preserve previous behaviour and avoid enabling the improvem
         overrideExistingClaims: "true"
         useOwnDataFile: "true"
     ```
+
+## Disabling versioning in the registry configuration
+If there are frequently updating registry properties, having the versioning enabled for
+registry resources in the registry can lead to unnecessary growth in the registry related
+tables in the database. To avoid this, we have disabled versioning by default in Identity
+Server 6.0.0.
+
+Therefore, when migrating to IS 6.0.0 it is **required** to turn off the registry versioning in your
+current Identity Server and run the below scripts against the database that is used by the registry.
+
+!!! info "Turning off registry versioning in your current IS and running the scripts"
+Open the `registry.xml` file in the `<OLD_IS_HOME>/repository/conf` directory.
+Set the `versioningProperties`, `versioningComments`, `versioningTags` and `versioningRatings`
+false.
+
+    ```
+    <staticConfiguration>
+          <versioningProperties>false</versioningProperties>
+          <versioningComments>false</versioningComments>
+          <versioningTags>false</versioningTags>
+          <versioningRatings>false</versioningRatings>
+    </staticConfiguration>
+    ```
+    
+    !!! warning
+        If the above configurations are already set as `false` you should not run the below scripts.
+    
+    When the above configurations are turned off, we need to remove the versioning detatils from the
+    database in order for the registry resources to work properly. Choose the relevant DB type and run the
+    script against the DB that the registry resides in.
+    
+    ??? info "DB Scripts"
+        ```tab="H2"
+        -- Update the REG_PATH_ID column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_RESOURCE_TAG.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_COMMENT SET REG_RESOURCE_COMMENT.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_PROPERTY SET REG_RESOURCE_PROPERTY.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_RATING SET REG_RESOURCE_RATING.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION);
+        
+        -- Delete versioned tags, were the PATH_ID will be null for older versions --
+        delete from REG_RESOURCE_PROPERTY where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_RATING where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_TAG where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_COMMENT where REG_PATH_ID is NULL;
+        
+        delete from REG_PROPERTY where REG_ID NOT IN (select REG_PROPERTY_ID from REG_RESOURCE_PROPERTY);
+        
+        delete from REG_TAG where REG_ID NOT IN (select REG_TAG_ID from REG_RESOURCE_TAG);
+        
+        delete from REG_COMMENT where REG_ID NOT IN (select REG_COMMENT_ID from REG_RESOURCE_COMMENT);
+        
+        delete from REG_RATING where REG_ID NOT IN (select REG_RATING_ID from REG_RESOURCE_RATING);
+        
+        -- Update the REG_PATH_NAME column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_RESOURCE_TAG.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_PROPERTY SET REG_RESOURCE_PROPERTY.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_COMMENT SET REG_RESOURCE_COMMENT.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_RATING SET REG_RESOURCE_RATING.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION);
+        
+        ```
+    
+        ```tab="DB2"
+        -- Update the REG_PATH_ID column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_RESOURCE_TAG.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_COMMENT SET REG_RESOURCE_COMMENT.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_PROPERTY SET REG_RESOURCE_PROPERTY.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_RATING SET REG_RESOURCE_RATING.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION)
+        /
+        
+        -- Delete versioned tags, were the PATH_ID will be null for older versions --
+        delete from REG_RESOURCE_PROPERTY where REG_PATH_ID is NULL
+        /
+        delete from REG_RESOURCE_RATING where REG_PATH_ID is NULL
+        /
+        delete from REG_RESOURCE_TAG where REG_PATH_ID is NULL
+        /
+        delete from REG_RESOURCE_COMMENT where REG_PATH_ID is NULL
+        /
+        delete from REG_PROPERTY where REG_ID NOT IN (select REG_PROPERTY_ID from REG_RESOURCE_PROPERTY)
+        /
+        delete from REG_TAG where REG_ID NOT IN (select REG_TAG_ID from REG_RESOURCE_TAG)
+        /
+        delete from REG_COMMENT where REG_ID NOT IN (select REG_COMMENT_ID from REG_RESOURCE_COMMENT)
+        /
+        delete from REG_RATING where REG_ID NOT IN (select REG_RATING_ID from REG_RESOURCE_RATING)
+        /
+        
+        -- Update the REG_PATH_NAME column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_RESOURCE_TAG.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_PROPERTY SET REG_RESOURCE_PROPERTY.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_COMMENT SET REG_RESOURCE_COMMENT.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_RATING SET REG_RESOURCE_RATING.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION)
+        /
+        
+        ```
+    
+        ```tab="MSSQL"
+        -- Update the REG_PATH_ID column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_PATH_ID=(SELECT REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_COMMENT SET REG_PATH_ID=(SELECT REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_PROPERTY SET REG_PATH_ID=(SELECT REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_RATING SET REG_PATH_ID=(SELECT REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION);
+        
+        -- Delete versioned tags, were the PATH_ID will be null for older versions --
+        delete from REG_RESOURCE_PROPERTY where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_RATING where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_TAG where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_COMMENT where REG_PATH_ID is NULL;
+        
+        delete from REG_PROPERTY where REG_ID NOT IN (select REG_PROPERTY_ID from REG_RESOURCE_PROPERTY);
+        
+        delete from REG_TAG where REG_ID NOT IN (select REG_TAG_ID from REG_RESOURCE_TAG);
+        
+        delete from REG_COMMENT where REG_ID NOT IN (select REG_COMMENT_ID from REG_RESOURCE_COMMENT);
+        
+        delete from REG_RATING where REG_ID NOT IN (select REG_RATING_ID from REG_RESOURCE_RATING);
+        
+        -- Update the REG_PATH_NAME column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_RESOURCE_NAME=(SELECT REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_PROPERTY SET REG_RESOURCE_NAME=(SELECT REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_COMMENT SET REG_RESOURCE_NAME=(SELECT REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_RATING SET REG_RESOURCE_NAME=(SELECT REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION);
+        
+        ```
+
+        ```tab="MySQL"
+        -- Update the REG_PATH_ID column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_RESOURCE_TAG.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_COMMENT SET REG_RESOURCE_COMMENT.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_PROPERTY SET REG_RESOURCE_PROPERTY.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_RATING SET REG_RESOURCE_RATING.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION);
+        
+        -- Delete versioned tags, were the PATH_ID will be null for older versions --
+        delete from REG_RESOURCE_PROPERTY where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_RATING where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_TAG where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_COMMENT where REG_PATH_ID is NULL;
+        
+        delete from REG_PROPERTY where REG_ID NOT IN (select REG_PROPERTY_ID from REG_RESOURCE_PROPERTY);
+        
+        delete from REG_TAG where REG_ID NOT IN (select REG_TAG_ID from REG_RESOURCE_TAG);
+        
+        delete from REG_COMMENT where REG_ID NOT IN (select REG_COMMENT_ID from REG_RESOURCE_COMMENT);
+        
+        delete from REG_RATING where REG_ID NOT IN (select REG_RATING_ID from REG_RESOURCE_RATING);
+        
+        -- Update the REG_PATH_NAME column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_RESOURCE_TAG.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_PROPERTY SET REG_RESOURCE_PROPERTY.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_COMMENT SET REG_RESOURCE_COMMENT.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_RATING SET REG_RESOURCE_RATING.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION);
+        
+        ```
+    
+        ```tab="Oracle"
+        -- Update the REG_PATH_ID column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_RESOURCE_TAG.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_COMMENT SET REG_RESOURCE_COMMENT.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_PROPERTY SET REG_RESOURCE_PROPERTY.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_RATING SET REG_RESOURCE_RATING.REG_PATH_ID=(SELECT REG_RESOURCE.REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION)
+        /
+        
+        -- Delete versioned tags, were the PATH_ID will be null for older versions --
+        delete from REG_RESOURCE_PROPERTY where REG_PATH_ID is NULL
+        /
+        delete from REG_RESOURCE_RATING where REG_PATH_ID is NULL
+        /
+        delete from REG_RESOURCE_TAG where REG_PATH_ID is NULL
+        /
+        delete from REG_RESOURCE_COMMENT where REG_PATH_ID is NULL
+        /
+        delete from REG_PROPERTY where REG_ID NOT IN (select REG_PROPERTY_ID from REG_RESOURCE_PROPERTY)
+        /
+        delete from REG_TAG where REG_ID NOT IN (select REG_TAG_ID from REG_RESOURCE_TAG)
+        /
+        delete from REG_COMMENT where REG_ID NOT IN (select REG_COMMENT_ID from REG_RESOURCE_COMMENT)
+        /
+        delete from REG_RATING where REG_ID NOT IN (select REG_RATING_ID from REG_RESOURCE_RATING)
+        /
+        
+        -- Update the REG_PATH_NAME column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_RESOURCE_TAG.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_PROPERTY SET REG_RESOURCE_PROPERTY.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_COMMENT SET REG_RESOURCE_COMMENT.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION)
+        /
+        UPDATE REG_RESOURCE_RATING SET REG_RESOURCE_RATING.REG_RESOURCE_NAME=(SELECT REG_RESOURCE.REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION)
+        /
+        
+        ```
+        
+        ```tab="PostgreSQL"
+        -- Update the REG_PATH_ID column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_PATH_ID=(SELECT REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_COMMENT SET REG_PATH_ID=(SELECT REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_PROPERTY SET REG_PATH_ID=(SELECT REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_RATING SET REG_PATH_ID=(SELECT REG_PATH_ID FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION);
+        
+        -- Delete versioned tags, were the PATH_ID will be null for older versions --
+        delete from REG_RESOURCE_PROPERTY where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_RATING where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_TAG where REG_PATH_ID is NULL;
+        
+        delete from REG_RESOURCE_COMMENT where REG_PATH_ID is NULL;
+        
+        create index REG_RESOURCE_PROPERTY_REG_PROPERTY_ID_INDEX ON REG_RESOURCE_PROPERTY(REG_PROPERTY_ID);
+
+        create index REG_PROPERTY_REG_ID_INDEX ON REG_PROPERTY(REG_ID);
+
+        delete from REG_PROPERTY WHERE NOT EXISTS (select REG_PROPERTY_ID from REG_RESOURCE_PROPERTY where REG_PROPERTY.REG_ID=REG_RESOURCE_PROPERTY.REG_PROPERTY_ID);
+
+        delete from REG_TAG where REG_ID NOT IN (select REG_TAG_ID from REG_RESOURCE_TAG);
+        
+        delete from REG_COMMENT where REG_ID NOT IN (select REG_COMMENT_ID from REG_RESOURCE_COMMENT);
+        
+        delete from REG_RATING where REG_ID NOT IN (select REG_RATING_ID from REG_RESOURCE_RATING);
+        
+        -- Update the REG_PATH_NAME column mapped with the REG_RESOURCE table --
+        UPDATE REG_RESOURCE_TAG SET REG_RESOURCE_NAME=(SELECT REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_TAG.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_PROPERTY SET REG_RESOURCE_NAME=(SELECT REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_PROPERTY.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_COMMENT SET REG_RESOURCE_NAME=(SELECT REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_COMMENT.REG_VERSION);
+        
+        UPDATE REG_RESOURCE_RATING SET REG_RESOURCE_NAME=(SELECT REG_NAME FROM REG_RESOURCE WHERE REG_RESOURCE.REG_VERSION=REG_RESOURCE_RATING.REG_VERSION);
+        
+        drop index REG_RESOURCE_PROPERTY_REG_PROPERTY_ID_INDEX;
+
+        drop index REG_PROPERTY_REG_ID_INDEX;
+        ```
 
 ## Prepare for Zero down time
 
